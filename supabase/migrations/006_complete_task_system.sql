@@ -1,0 +1,8 @@
+-- ELMUAZ EIMS
+-- Migration 006: Complete Task System
+--
+-- NOTE:
+-- This migration was partially applied in Supabase.
+-- The existing reviewed_by foreign key already existed,
+-- so the remaining missing task components were completed
+-- by Migration 007.
