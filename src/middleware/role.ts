@@ -21,7 +21,23 @@ export function requireRole(...allowedRoles: string[]) {
         .eq("id", authenticatedRequest.user.id)
         .single();
 
-      if (error || !profile) {
+      if (error) {
+        const code = typeof error.code === "string" ? error.code.slice(0, 40) : undefined;
+        if (code !== "PGRST116" && code !== "42501") {
+          console.error("Authorization profile lookup failed", { code: code ?? "unknown" });
+          res.status(500).json({
+            success: false,
+            message: "Authorization service error",
+          });
+          return;
+        }
+        res.status(403).json({
+          success: false,
+          message: "User profile not found",
+        });
+        return;
+      }
+      if (!profile) {
         res.status(403).json({
           success: false,
           message: "User profile not found",
@@ -47,7 +63,11 @@ export function requireRole(...allowedRoles: string[]) {
 
       next();
     } catch (error) {
-      console.error("Authorization error:", error);
+      const name = error instanceof Error ? error.name : "UnknownError";
+      const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code.slice(0, 40)
+        : undefined;
+      console.error("Authorization check failed", { name, ...(code ? { code } : {}) });
 
       res.status(500).json({
         success: false,

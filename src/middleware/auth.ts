@@ -21,6 +21,14 @@ export interface AuthenticatedRequest extends Request {
   accessToken: string;
 }
 
+function logAuthFailure(error: unknown) {
+  const name = error instanceof Error ? error.name : "UnknownError";
+  const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code.slice(0, 40)
+    : undefined;
+  console.error("Authentication verification failed", { name, ...(code ? { code } : {}) });
+}
+
 export async function requireAuth(
   req: Request,
   res: Response,
@@ -29,16 +37,17 @@ export async function requireAuth(
   try {
     const authorization = req.headers.authorization;
 
-    if (!authorization?.startsWith("Bearer ")) {
+    if (typeof authorization !== "string") {
       return res.status(401).json({
         success: false,
         message: "Authentication required",
       });
     }
 
-    const token = authorization.slice("Bearer ".length).trim();
+    const match = /^Bearer\s+(\S+)$/i.exec(authorization.trim());
+    const token = match?.[1];
 
-    if (!token) {
+    if (!token || token.length > 8192) {
       return res.status(401).json({
         success: false,
         message: "Authentication required",
@@ -50,7 +59,20 @@ export async function requireAuth(
       error,
     } = await supabaseAuth.auth.getUser(token);
 
-    if (error || !user) {
+    if (error) {
+      logAuthFailure(error);
+      if (error.status !== undefined && error.status >= 500) {
+        return res.status(503).json({ success: false, message: "Authentication service unavailable" });
+      }
+      if (error.name === "AuthRetryableFetchError") {
+        return res.status(503).json({ success: false, message: "Authentication service unavailable" });
+      }
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired access token",
+      });
+    }
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: "Invalid or expired access token",
@@ -68,7 +90,7 @@ export async function requireAuth(
 
     next();
   } catch (error) {
-    console.error("Authentication error:", error);
+    logAuthFailure(error);
 
     return res.status(500).json({
       success: false,
